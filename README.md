@@ -1,81 +1,75 @@
 # opencode-provider-setup
 
-> 为 OpenCode V2 配置第三方供应商与模型元数据的 agent skill。
-> An agent skill for correctly setting up third-party providers and model metadata in OpenCode V2.
+**给 OpenCode 加第三方中转站时，你只需要报出「地址 + 模型名」，剩下的交给它。**
 
-## 为什么需要它
+不写 JSON、不查文档、不记格式——你说话，AI 补全参数、写入配置、验证结果。
 
-给 OpenCode 接第三方供应商（中转站、网关、自建 OpenAI 兼容端点）时，配置看起来简单，实际处处是坑：
+## 它帮你做什么
 
-- 网上大量教程是 V1 语法（`provider` 单数 / `npm` / `options`），照抄会被**静默丢弃**——provider 从模型列表消失，UI 上没有任何报错
-- OpenCode 官方在线 schema（`opencode.ai/config.json`）至今仍是 V1 形状，编辑器和工具会被它带偏
-- 思考档位（variants）有一套自动机制：不写档位会被自动补默认三档，想要精确档位必须写全；用发现类插件时两个来源还可能合并
-- 一个字段写错（哪怕只是一个引号），整个 provider 会从模型列表消失，只有一个日志行提示
+你说一句话：
 
-这个技能把这些知识固定成**可重复、可验证的流程**，让配置任务不依赖执行者的记忆和经验——包括用能力较弱的模型来执行时。
+> 帮我接入 xx 中转站，地址 `https://api.example.com/v1`，用 `deepseek-v4.1-flash` 和 `glm-5.3-flash`
+
+它自动完成：
+
+- 探测你的端点，拿到**准确的模型 ID**（不猜）
+- 从 models.dev 匹配每个模型的：限额、输入模态、工具支持、**官方思考档位**
+- 按 OpenCode V2 的正确格式写入配置
+- 改完跑三级验证，把结果给你看
+
+## 配置过程中，你只做一件事：填一次 API key
+
+第一次配置某个供应商时，AI 会引导你（约 30 秒）：
+
+1. 在 OpenCode 里输入 `/connect`
+2. 搜索、找到你的供应商名
+3. 回车，粘贴 API key
+
+key 存进 OpenCode 的凭据库，**不写进任何配置文件**（不上云、不进 git）。以后不用再碰。
+
+## 一次完整对话长这样
+
+| 你 / AI | 内容 |
+|---|---|
+| 你 | 帮我加个中转站 `https://api.example.com/v1`，里面有 `deepseek-v4.1-flash` 和 `glm-5.3-flash`，思考档位保留 low/high/max |
+| AI | （探测端点 → 匹配元数据 → 给你一张参数确认表） |
+| AI | 配置写好了。请在 OpenCode 里输入 `/connect`，找到 **example** 供应商，回车并粘贴 API key，完成后告诉我 |
+| 你 | 好了 |
+| AI | ✅ 两个模型已注册；参数核对（限额/模态/档位）无误；发了一条测试消息，正常返回 |
+
+公开渠道查不到的数据（比如你中转站的实际价格），AI 会**明确问你**，而不是编一个填进去。
+
+## 为什么可以放心
+
+- **不编数据**：每个数字都有来源（你的文档 > 端点实测 > models.dev），拿不到就问你
+- **只写正确语法**：网上教程大多还是旧的 V1 写法，照抄会让 provider 从列表里**静默消失**；本技能内置 V2 正确写法和真实踩坑清单
+- **改完必验证**：改前自动备份、改后跑命令核对、失败回滚
+- **经过对照测试**：同一模型三个任务，带技能 vs 不带技能：
+
+| 任务 | 带技能 | 不带技能 |
+|---|---|---|
+| 坏配置诊断 | 5/5 | 0/5（V1/V2 语法整个搞反） |
+| 新供应商（信息不全） | 5/5 | 4/5 |
+| 档位核对 | 5/5 | 4/5 |
+
+## 什么时候用得上
+
+- 接入新的第三方中转站 / 网关 / 自建 OpenAI 兼容端点
+- 某供应商的模型突然从列表里"消失"
+- 模型的思考档位（variants）多了、少了、不对
+- 补全模型的限额 / 价格 / 模态信息
 
 ## 安装
-
-### 方式一：skills CLI（推荐）
 
 ```sh
 npx skills add tttrove/opencode-provider-setup
 ```
 
-### 方式二：手动
-
-把本目录复制到 OpenCode 的技能目录，例如：
-
-- 全局：`~/.config/opencode/skills/opencode-provider-setup/`
-- 或 agent 通用布局：`~/.agents/skills/opencode-provider-setup/`
-
-（以你的 OpenCode 版本实际识别的技能目录为准。）
-
-## 覆盖范围
-
-| 场景 | 内容 |
-|---|---|
-| 接入新供应商 | 端点探测、V2 providers 结构、`/connect` 凭据、避免明文 key |
-| 模型元数据 | limits（含常被漏掉的 `input` 限额）、capabilities（模态/工具支持）、cost（含按上下文分档的价格） |
-| 思考档位 variants | 实测机制（显式定义 = 完全控制）、与 models.dev 官方档位对齐、零档位写法 |
-| 验证 | `opencode models` / `opencode api get /api/model` / 端到端发消息，三级验证与失败回滚 |
-
-## 三条铁律
-
-1. **规格必须来自实证，不许编造**——每个数字都要有来源（服务商文档 > 端点实测 > models.dev 匹配），拿不到就停下来问用户
-2. **只写 V2 语法**——并警惕被 V1 形状的在线 schema 带偏
-3. **改完必须验证**——配置有静默失败模式，验证结果要给用户看
-
-## 包含文件
-
-```
-SKILL.md                          # 主流程：收集事实 → 写配置 → 档位专项 → 验证 → 坑清单
-references/v2-model-fields.md     # 完整字段表、V1→V2 对照、真实示例、实测档位行为
-```
+手动安装：把 `SKILL.md` 和 `references/` 复制到技能目录，如 `~/.agents/skills/opencode-provider-setup/`。
 
 ## 适用范围
 
-- 基于 OpenCode v2.0.x（2026-10）实测与官方 V2 文档整理；V2 仍在演进，遇到差异以本机实测为准
-- 少数未实测内容（如思考预算映射示例）在文中明确标注为"示意"
-- 面向"给 OpenCode 接第三方供应商"的用户；只使用官方渠道的用户可能用不上
-
-## 发布前的对照测试
-
-同一模型、三个代表性任务（坏配置诊断 / 信息不全的新供应商配置 / 档位核对），各跑一次"带技能 vs 不带技能"：
-
-| 任务 | 带技能 | 不带技能 |
-|---|---|---|
-| 坏配置诊断 | 5/5 | 0/5（把 V1/V2 语法整个搞反） |
-| 新供应商（信息不全） | 5/5 | 4/5 |
-| 档位核对 | 5/5 | 4/5 |
-
-价值最大的场景：**没有现场可查、纯凭记忆判断**的时候——这正是弱模型最容易翻车的地方。
-
-## 致谢
-
-- [OpenCode](https://opencode.ai) 官方 V2 文档
-- [models.dev](https://models.dev)（模型元数据来源）
-- OpenCode 社区 issue 中的真实故障报告（#54973、#53744 等）
+基于 OpenCode v2.0.x（2026-10）的实测与官方 V2 文档整理；V2 迭代较快，遇到差异以本机实测为准。主要面向使用第三方供应商的用户。
 
 ## License
 
@@ -85,16 +79,18 @@ MIT
 
 ## English
 
-**opencode-provider-setup** is an [agent skill](https://skills.sh) for setting up third-party providers and model metadata in OpenCode V2 (OpenAI-compatible relays, gateways, and self-hosted endpoints).
+**Adding a third-party relay to OpenCode? Just name the URL and the models — the skill fills in everything else.**
 
-It enforces a verifiable workflow: gather facts (endpoint probing, models.dev matching, user confirmation) → write V2-syntax config → configure reasoning variants against the official effort list → verify with `opencode models` / `opencode api get /api/model` / an end-to-end message.
+The one thing you do yourself: the first time you set up a provider, the agent walks you through `/connect` (search your provider's name → enter → paste the API key). The key lives in OpenCode's credential store — never in a config file. Typically a one-time, 30-second step.
 
-Key knowledge baked in:
+What the skill handles: probing your endpoint for exact model IDs, matching each model against models.dev (limits, modalities, tool support, official reasoning levels), writing a correct OpenCode V2 config, and verifying the result afterwards.
 
-- V1 vs V2 syntax differences (most online tutorials are V1 and get silently dropped; the online schema is still V1-shaped)
-- Reasoning variant behavior: explicit `variants` gives full control; omitting the field auto-adds low/medium/high
-- Cost tiers, capabilities, and limits (including the often-missing `input` limit)
-- Safe credential handling via `/connect` instead of plaintext keys
+Why it's safe to hand over:
+
+- **No invented data** — every number has a source (your docs > endpoint probe > models.dev); anything unavailable gets asked, not guessed
+- **V2 syntax only** — most online tutorials are V1-shaped and silently break your provider
+- **Always verified** — backup, check, rollback on failure
+- **Tested** — 15/15 vs 8/15 assertions for with-skill vs baseline across three tasks
 
 Install:
 
@@ -102,4 +98,4 @@ Install:
 npx skills add tttrove/opencode-provider-setup
 ```
 
-Based on OpenCode v2.0.x (verified 2026-10). Validated with a with-skill vs baseline comparison: 15/15 vs 8/15 assertions across three tasks. Licensed under MIT.
+Based on OpenCode v2.0.x (verified 2026-10). MIT.

@@ -4,7 +4,7 @@
   "groupings": [
     {
       "title": "OpenCode",
-      "description": "Configure third-party providers and model metadata in OpenCode V2 — model limits, capabilities, cost, and reasoning variants — with a verification-first workflow. 为 OpenCode V2 配置第三方供应商与模型元数据（限额/模态/价格/思考档位），改完必验证。",
+      "description": "给 OpenCode 加中转站/网关：报出地址和模型，自动补全限额/模态/价格/官方思考档位并验证；你只需在 /connect 填一次 key。Add a relay by naming the URL and models — metadata filled in and verified automatically; one-time /connect for the key.",
       "skills": [
         "opencode-provider-setup"
       ]
