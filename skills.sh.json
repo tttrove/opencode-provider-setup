@@ -1,0 +1,13 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "OpenCode",
+      "description": "Configure third-party providers and model metadata in OpenCode V2 — model limits, capabilities, cost, and reasoning variants — with a verification-first workflow. 为 OpenCode V2 配置第三方供应商与模型元数据（限额/模态/价格/思考档位），改完必验证。",
+      "skills": [
+        "opencode-provider-setup"
+      ]
+    }
+  ]
+}
