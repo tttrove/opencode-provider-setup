@@ -49,6 +49,10 @@ curl -sS "https://<地址>/v1/models" -H "Authorization: Bearer <key>"
 
 Windows PowerShell 里请用 `curl.exe`（`curl` 在 PowerShell 中默认指向 Invoke-WebRequest，参数不兼容）。拿到的 ID 就是 `models` 里的键名。注意有些中转商返回的是带前缀的 ID（如 `deepseek/deepseek-r1`）——以端点返回的为准。
 
+**探测所需的 key 只能向用户索取**（或用户主动通过环境变量提供）。**严禁自行读取任何凭据文件或凭据数据库**——包括 `auth.json`、`opencode.db` 的 `credential` 表、`opencode auth export` 的输出。用户未提供 key 时，跳过端点探测，直接说明"无法实测端点限额，将以 models.dev 数据为准"，不要为了拿 key 去翻凭据。
+
+探测时注意两点：不要把 key 直接写进命令行（会进 shell 历史），用临时变量或 `-H @-` 从 stdin 传入；**回显输出里不得出现 key 的任何片段（包括前几位）**——会话记录会落盘。探测失败（如返回 `Invalid token`）就如实报告失败原因，不要转而去找凭据。
+
 ### 1.2 models.dev 匹配（能匹配就继承）
 
 在 https://models.dev 搜模型名，或者按名字归一化后比对（去掉 `-expires-on-xxxx`、日期后缀、前缀差异）。匹配到就继承：显示名、context/output limit、输入模态、工具支持。**input limit、价格、档位通常拿不到，必须自己填**（见 1.3）。
@@ -81,7 +85,7 @@ Windows PowerShell 里请用 `curl.exe`（`curl` 在 PowerShell 中默认指向 
       "package": "@opencode/ai/providers/openai-compatible",
       "settings": {
         "baseURL": "https://<地址>/v1"
-        // 不要写 apiKey：先让用户执行 /connect 把 key 存进凭据库
+        // 不要写 apiKey：先让用户执行 /connect 把 key 存进凭据数据库
       },
       "models": {
         "<model-id>": {
@@ -115,7 +119,10 @@ Windows PowerShell 里请用 `curl.exe`（`curl` 在 PowerShell 中默认指向 
 
 > 请在 OpenCode 里输入 `/connect` → 搜索或找到 **\<供应商名\>** → 回车 → 选择 API key 方式并粘贴 key → 完成后告诉我。
 
-- key 会存进 OpenCode 的凭据库，不写进任何文件（不上云、不进 git）。
+- **key 存进 OpenCode 的凭据数据库，不是配置文件**：`~/.local/share/opencode/opencode.db` 的 `credential` 表（Windows：`C:\Users\<用户名>\.local\share\opencode\opencode.db`）。`/connect` 与 `opencode auth login <provider-id>` 写的是同一张表，效果一致。
+- **该表不加密**：`value` 列是明文 JSON，形如 `{"type":"key","key":"sk-..."}`。不要对用户宣称"加密存储"或"不写进任何文件"——它就是一个未加密的 SQLite 文件。
+- **风险边界**：数据库位于 `.local/share`，**不在** `~/.config/opencode` 配置仓库内，所以不会随配置同步或进 git。但如果用户同步整个用户目录（OneDrive、坚果云、整盘备份），key 仍会外泄。同一台机器上的其他账户若对数据目录有读权限，也能直接读表。
+- **旧版 `auth.json` 是迁移残留**：V2 有个一次性迁移 `20260805200742_import_legacy_credentials`，把 `auth.json` 导入 `credential` 表后就再没人读写它。**手改或手删 `auth.json` 对当前凭据完全无效**（实测：清空 `auth.json` 后 `opencode auth list` 仍显示 `stored`）。删除凭证只认 `opencode auth logout <provider-id>`。
 - 用户回复"完成"之后，才能跑端到端测试（第 4 节）；用户没填完时端到端测试必然失败，别跑。
 - 如果用户在 `/connect` 里找不到该供应商：先检查 provider 配置是否写对（用 4.1 的 `opencode models` 确认注册），配置正确的情况下它就会出现在列表里。
 - 用户坚持把 key 写在配置里：可以，但要提醒——这个文件如果进了 git 仓库或云同步，key 就泄露了（中转 key 被盗刷是常见事故）。
@@ -153,6 +160,20 @@ Windows PowerShell 里请用 `curl.exe`（`curl` 在 PowerShell 中默认指向 
 模型确实不支持思考档位、或不想展示任何档位：写 `"variants": []`（实测 = 零档位，不会被补默认三档）。**不要用"省略 variants 字段"表达零档位**——省略会被补上 low/medium/high。
 
 ## 4. 验证（改完按顺序执行，把结果给用户看）
+
+### 4.0 凭据是否已存入
+
+```sh
+# 列出已存储的集成与凭据（不显示 key 内容）
+opencode auth list
+```
+
+目标供应商出现在列表里（`stored` 列）即说明 key 已进入凭据数据库。这一步和模型配置无关，但用户说"填完了"时先跑它，比直接跑端到端测试更快定位问题。
+
+- 找不到 → key 没存进去，或存到了别的 `provider-id` 下。`integration_id` 必须与 `providers` 里的键名完全一致。**注意 `auth list` 只显示已注册的 integration**，未注册的残留凭据查不到，详见第 5 节。
+- 需要删除时用 `opencode auth logout <provider-id>`，**不要手删 `auth.json`**（无效，见 2.3）。未注册的 integration 用 `logout` 会报 `Integration not found`，见第 5 节的处理方式。
+- 排查时**不要** `cat auth.json`、不要 `SELECT value FROM credential`、不要 `opencode auth export`——输出会把明文 key 带进会话记录。只看 `integration_id` / `label` / `type` / `active` 即可。
+- 想要含 credential ID 的详细视图用 `opencode auth list --format json`（不泄露 key，但能拿到 `cred_...` 形式的 ID，便于精确操作）。
 
 ### 4.1 配置能否加载
 
@@ -192,6 +213,13 @@ opencode api get /api/model
 - `variants` 按 V1 的对象写法（`{"low": {}}`）写，而 schema 要求数组 → provider 被静默丢弃（issue #53744）。
 - 改了配置后，模型列表刷新一般不需要重启服务；若界面没更新，先试刷新/新开会话，再考虑重启。
 - 明文 API key 进 git/云同步 = 泄露；配置目录如果本身是 git 仓库，尤其注意。
+- 凭据存在 `opencode.db` 的 `credential` 表，**未加密**（`value` 列是明文 JSON）。它不在配置仓库里，但同步整个用户目录一样会外泄。别把它当成加密保险箱。
+- 删除凭证只认 `opencode auth logout <provider-id>`。`auth.json` 在 V2 只是迁移残留，手删不会删掉数据库里的凭据——实测清空 `auth.json` 后 `opencode auth list` 仍显示 `stored`，容易误判"已删除"。
+- 排查凭据问题时，回显输出会把明文 key 写进会话记录和磁盘上的工具输出文件。只查 `integration_id` / `label` / `type` / `active` / 长度，不要打印 `key` 或 `value` 列。
+- 端点探测失败（如 `Invalid token`）时，如实报告"无法实测"，**不要转而去翻凭据文件找 key**。凭据只能由用户提供。
+- **`opencode auth list` 只显示已注册的 integration**：配置里没有对应 `providers` 条目的凭据（测试残留、改过 provider-id 的旧记录）不会出现在列表里，`auth logout` 也会先解析 integration 而报 `Integration not found`——形成"看不见也删不掉"的死角。实测：`a6api-test` / `a6api-copy` 在 `credential` 表中存在且 `active=1`，但 `auth list`（含 `--format json`）完全不显示。
+- 排查这类残留：先 `opencode auth list --format json` 确认（输出含 credential ID，比默认表格详细）；仍看不到就直接查 `credential` 表。清理时**先扫描全库确认无外部引用**（`workspace` 表、以及所有 TEXT 列中是否出现该 credential ID），再在事务里按 `id` 精确 `DELETE`，不要按 `integration_id` 模糊删。
+- `auth logout` 在非交互终端下必须带 credential 参数，且是**位置参数**不是 flag：`opencode auth logout <integration> <credential-id>`（写成 `--credential` 会报 `Unrecognized flag`）。但如上所述，未注册的 integration 走这条路仍然失败。
 
 ## 参考
 
